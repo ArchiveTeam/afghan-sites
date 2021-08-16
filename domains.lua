@@ -204,7 +204,6 @@ wget.callbacks.get_urls = function(file, url, is_css, iri)
     url_ = string.match(url_, "^(.-)%s*$")
     url_ = string.match(url_, "^(.-)%??$")
     url_ = string.match(url_, "^(.-)&?$")
-    url_ = string.match(url_, "^(.-)/?$")
     if not downloaded[url_] and not addedtolist[url_] then
       table.insert(urls, { url=url_ })
       addedtolist[url_] = true
