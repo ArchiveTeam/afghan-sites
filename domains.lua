@@ -3,10 +3,12 @@ dofile("urlcode.lua")
 local urlparse = require("socket.url")
 local http = require("socket.http")
 
-local max_seconds = tonumber(os.getenv('max_seconds'))
-local max_urls = tonumber(os.getenv('max_urls'))
-local max_bytes = tonumber(os.getenv('max_bytes'))
-local item_name = os.getenv('item_name')
+local max_seconds = tonumber(os.getenv("max_seconds"))
+local max_urls = tonumber(os.getenv("max_urls"))
+local max_bytes = tonumber(os.getenv("max_bytes"))
+local item_dir = os.getenv("item_dir")
+local item_name = os.getenv("item_name")
+local warc_file_base = os.getenv("warc_file_base")
 
 io.stdout:write("Max seconds: " .. tostring(max_seconds) .. ".\n")
 io.stdout:write("Max URLs: " .. tostring(max_urls) .. ".\n")
@@ -119,7 +121,7 @@ discover_item = function(type_, value, target)
   if item == item_name or discovered_all[item] then
     return true
   end
-  print('discovered item', item)
+  print("discovered item", item)
   target[item] = true
   discovered_all[item] = true
   discovered_count = discovered_count + 1
@@ -131,14 +133,14 @@ end
 
 bad_code = function(status_code)
   return status_code == 0
-    or status_code == 401
+    --or status_code == 401
     or status_code == 403
-    or status_code == 407
+    --or status_code == 407
     or status_code == 408
-    or status_code == 411
+    --or status_code == 411
     or status_code == 413
     or status_code == 429
-    or status_code == 451
+    --or status_code == 451
     or status_code >= 500
 end
 
@@ -336,6 +338,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
   if abortgrab == true then
     io.stdout:write("ABORTING...\n")
     io.stdout:flush()
+    submit_discovered()
     return wget.actions.ABORT
   end
 
@@ -347,7 +350,7 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
       io.stdout:write("I give up...\n")
       io.stdout:flush()
       tries = 0
-      return wget.actions.EXIT
+      return wget.actions.ABORT
     else
       os.execute("sleep " .. math.floor(math.pow(2, tries)))
       tries = tries + 1
@@ -367,12 +370,20 @@ wget.callbacks.httploop_result = function(url, err, http_stat)
 end
 
 wget.callbacks.before_exit = function(exit_status, exit_status_string)
+  local function write_no_error()
+    local file = io.open(item_dir .. "/" .. warc_file_base .. "_error.txt", "w")
+    file:write("no_error")
+    file:close()
+  end
+  submit_discovered()
   if seconds_expired or urls_expired or bytes_expired then
+    write_no_error()
     return wget.exits.WGET_EXIT_SUCCESS
   end
   if abortgrab == true then
     return wget.exits.IO_FAIL
   end
+  write_no_error()
   return exit_status
 end
 

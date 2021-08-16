@@ -50,7 +50,7 @@ if not WGET_AT:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20210816.01'
+VERSION = '20210817.01'
 USER_AGENT = 'Archive Team'
 TRACKER_ID = 'afghan-sites'
 TRACKER_HOST = 'legacy-api.arpa.li'
@@ -120,6 +120,7 @@ class PrepareDirectories(SimpleTask):
 
         open('%(item_dir)s/%(warc_file_base)s.warc.gz' % item, 'w').close()
         open('%(item_dir)s/%(warc_file_base)s_data.txt' % item, 'w').close()
+        open('%(item_dir)s/%(warc_file_base)s_error.txt' % item, 'w').close()
 
 
 class MoveFiles(SimpleTask):
@@ -132,7 +133,18 @@ class MoveFiles(SimpleTask):
         os.rename('%(item_dir)s/%(warc_file_base)s_data.txt' % item,
               '%(data_dir)s/%(warc_file_base)s_data.txt' % item)
 
+        with open('%(item_dir)s/%(warc_file_base)s_error.txt' % item, 'r') as f:
+            item['has_error'] = f.read().strip() == ''
+
         shutil.rmtree('%(item_dir)s' % item)
+
+
+class CheckError(SimpleTask):
+    def __init__(self):
+        SimpleTask.__init__(self, 'CheckError')
+
+    def process(self, item):
+        assert not item['has_error']
 
 
 def get_hash(filename):
@@ -187,7 +199,7 @@ class WgetArgs(object):
         wget_args.extend(['--warc-header', 'domain: ' + item_name])
 
         for begin in ('http://', 'https://'):
-            for end in ('/sitemap.xml', '/', '/robots.txt', ):
+            for end in ('/robots.txt', '/sitemap.xml', '/'):
                 wget_args.append(begin+item_name+end)
 
         if 'bind_address' in globals():
@@ -222,10 +234,12 @@ pipeline = Pipeline(
         max_tries=1,
         accept_on_exit_code=[-6, 0, 4, 8],
         env={
-            'max_seconds': str(24*3600),
+            'max_seconds': str(36*3600),
             'max_urls': '500000',
             'max_bytes': str(60*1024**3),
-            'item_name': ItemValue('item_name')
+            'item_name': ItemValue('item_name'),
+            'item_dir': ItemValue('item_dir'),
+            'warc_file_base': ItemValue('warc_file_base'),
         }
     ),
     PrepareStatsForTracker(
@@ -237,7 +251,7 @@ pipeline = Pipeline(
         },
         id_function=stats_id_function,
     ),
-    #MoveFiles(),
+    MoveFiles(),
     LimitConcurrent(NumberConfigValue(min=1, max=20, default='2',
         name='shared:rsync_threads', title='Rsync threads',
         description='The maximum number of concurrent uploads.'),
@@ -247,7 +261,6 @@ pipeline = Pipeline(
             version=VERSION,
             files=[
                 ItemInterpolation('%(data_dir)s/%(warc_file_base)s.warc.gz'),
-                ItemInterpolation('%(data_dir)s/%(warc_file_base)s-tail.warc.gz'),
                 ItemInterpolation('%(data_dir)s/%(warc_file_base)s_data.txt')
             ],
             rsync_target_source_path=ItemInterpolation('%(data_dir)s/'),
@@ -261,6 +274,7 @@ pipeline = Pipeline(
             ]
         ),
     ),
+    CheckError(),
     SendDoneToTracker(
         tracker_url='http://%s/%s' % (TRACKER_HOST, TRACKER_ID),
         stats=ItemValue('stats')
